@@ -1,0 +1,806 @@
+[
+ {
+  "type": "function",
+  "name": "WINDOW",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "",
+    "type": "uint256",
+    "internalType": "uint256"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
+  "name": "agentsOf",
+  "inputs": [
+   {
+    "name": "owner",
+    "type": "address",
+    "internalType": "address"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "",
+    "type": "address[]",
+    "internalType": "address[]"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
+  "name": "allowed",
+  "inputs": [
+   {
+    "name": "",
+    "type": "address",
+    "internalType": "address"
+   },
+   {
+    "name": "",
+    "type": "address",
+    "internalType": "address"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "",
+    "type": "bool",
+    "internalType": "bool"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
+  "name": "approve",
+  "inputs": [
+   {
+    "name": "id",
+    "type": "uint256",
+    "internalType": "uint256"
+   },
+   {
+    "name": "trustRecipient",
+    "type": "bool",
+    "internalType": "bool"
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
+  "name": "cancel",
+  "inputs": [
+   {
+    "name": "id",
+    "type": "uint256",
+    "internalType": "uint256"
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
+  "name": "check",
+  "inputs": [
+   {
+    "name": "agent",
+    "type": "address",
+    "internalType": "address"
+   },
+   {
+    "name": "to",
+    "type": "address",
+    "internalType": "address"
+   },
+   {
+    "name": "amount",
+    "type": "uint128",
+    "internalType": "uint128"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "",
+    "type": "string",
+    "internalType": "string"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
+  "name": "fund",
+  "inputs": [
+   {
+    "name": "agent",
+    "type": "address",
+    "internalType": "address"
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "payable"
+ },
+ {
+  "type": "function",
+  "name": "getAgent",
+  "inputs": [
+   {
+    "name": "agent",
+    "type": "address",
+    "internalType": "address"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "a",
+    "type": "tuple",
+    "internalType": "struct Leash.Agent",
+    "components": [
+     {
+      "name": "owner",
+      "type": "address",
+      "internalType": "address"
+     },
+     {
+      "name": "frozen",
+      "type": "bool",
+      "internalType": "bool"
+     },
+     {
+      "name": "allowlistOnly",
+      "type": "bool",
+      "internalType": "bool"
+     },
+     {
+      "name": "balance",
+      "type": "uint128",
+      "internalType": "uint128"
+     },
+     {
+      "name": "dailyLimit",
+      "type": "uint128",
+      "internalType": "uint128"
+     },
+     {
+      "name": "perTxLimit",
+      "type": "uint128",
+      "internalType": "uint128"
+     },
+     {
+      "name": "spentInWindow",
+      "type": "uint128",
+      "internalType": "uint128"
+     },
+     {
+      "name": "windowStart",
+      "type": "uint64",
+      "internalType": "uint64"
+     },
+     {
+      "name": "totalPayments",
+      "type": "uint64",
+      "internalType": "uint64"
+     },
+     {
+      "name": "totalSpent",
+      "type": "uint128",
+      "internalType": "uint128"
+     },
+     {
+      "name": "totalGas",
+      "type": "uint128",
+      "internalType": "uint128"
+     },
+     {
+      "name": "name",
+      "type": "string",
+      "internalType": "string"
+     }
+    ]
+   },
+   {
+    "name": "remainingToday",
+    "type": "uint256",
+    "internalType": "uint256"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
+  "name": "getRequest",
+  "inputs": [
+   {
+    "name": "id",
+    "type": "uint256",
+    "internalType": "uint256"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "",
+    "type": "tuple",
+    "internalType": "struct Leash.Request",
+    "components": [
+     {
+      "name": "agent",
+      "type": "address",
+      "internalType": "address"
+     },
+     {
+      "name": "to",
+      "type": "address",
+      "internalType": "address"
+     },
+     {
+      "name": "amount",
+      "type": "uint128",
+      "internalType": "uint128"
+     },
+     {
+      "name": "createdAt",
+      "type": "uint64",
+      "internalType": "uint64"
+     },
+     {
+      "name": "status",
+      "type": "uint8",
+      "internalType": "enum Leash.Status"
+     },
+     {
+      "name": "memo",
+      "type": "string",
+      "internalType": "string"
+     }
+    ]
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
+  "name": "pay",
+  "inputs": [
+   {
+    "name": "to",
+    "type": "address",
+    "internalType": "address"
+   },
+   {
+    "name": "amount",
+    "type": "uint128",
+    "internalType": "uint128"
+   },
+   {
+    "name": "memo",
+    "type": "string",
+    "internalType": "string"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "settled",
+    "type": "bool",
+    "internalType": "bool"
+   },
+   {
+    "name": "requestId",
+    "type": "uint256",
+    "internalType": "uint256"
+   }
+  ],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
+  "name": "refuel",
+  "inputs": [
+   {
+    "name": "amount",
+    "type": "uint128",
+    "internalType": "uint128"
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
+  "name": "registerAgent",
+  "inputs": [
+   {
+    "name": "agent",
+    "type": "address",
+    "internalType": "address"
+   },
+   {
+    "name": "name",
+    "type": "string",
+    "internalType": "string"
+   },
+   {
+    "name": "dailyLimit",
+    "type": "uint128",
+    "internalType": "uint128"
+   },
+   {
+    "name": "perTxLimit",
+    "type": "uint128",
+    "internalType": "uint128"
+   },
+   {
+    "name": "allowlistOnly",
+    "type": "bool",
+    "internalType": "bool"
+   },
+   {
+    "name": "gasSeed",
+    "type": "uint128",
+    "internalType": "uint128"
+   },
+   {
+    "name": "trusted",
+    "type": "address[]",
+    "internalType": "address[]"
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "payable"
+ },
+ {
+  "type": "function",
+  "name": "reject",
+  "inputs": [
+   {
+    "name": "id",
+    "type": "uint256",
+    "internalType": "uint256"
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
+  "name": "requestCount",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "",
+    "type": "uint256",
+    "internalType": "uint256"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
+  "name": "setAllowed",
+  "inputs": [
+   {
+    "name": "agent",
+    "type": "address",
+    "internalType": "address"
+   },
+   {
+    "name": "recipient",
+    "type": "address",
+    "internalType": "address"
+   },
+   {
+    "name": "ok",
+    "type": "bool",
+    "internalType": "bool"
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
+  "name": "setFrozen",
+  "inputs": [
+   {
+    "name": "agent",
+    "type": "address",
+    "internalType": "address"
+   },
+   {
+    "name": "frozen_",
+    "type": "bool",
+    "internalType": "bool"
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
+  "name": "setLimits",
+  "inputs": [
+   {
+    "name": "agent",
+    "type": "address",
+    "internalType": "address"
+   },
+   {
+    "name": "dailyLimit",
+    "type": "uint128",
+    "internalType": "uint128"
+   },
+   {
+    "name": "perTxLimit",
+    "type": "uint128",
+    "internalType": "uint128"
+   },
+   {
+    "name": "allowlistOnly",
+    "type": "bool",
+    "internalType": "bool"
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
+  "name": "withdraw",
+  "inputs": [
+   {
+    "name": "agent",
+    "type": "address",
+    "internalType": "address"
+   },
+   {
+    "name": "amount",
+    "type": "uint128",
+    "internalType": "uint128"
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "event",
+  "name": "AgentRegistered",
+  "inputs": [
+   {
+    "name": "owner",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "agent",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "name",
+    "type": "string",
+    "indexed": false,
+    "internalType": "string"
+   },
+   {
+    "name": "dailyLimit",
+    "type": "uint256",
+    "indexed": false,
+    "internalType": "uint256"
+   },
+   {
+    "name": "perTxLimit",
+    "type": "uint256",
+    "indexed": false,
+    "internalType": "uint256"
+   }
+  ],
+  "anonymous": false
+ },
+ {
+  "type": "event",
+  "name": "AllowlistUpdated",
+  "inputs": [
+   {
+    "name": "agent",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "recipient",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "ok",
+    "type": "bool",
+    "indexed": false,
+    "internalType": "bool"
+   }
+  ],
+  "anonymous": false
+ },
+ {
+  "type": "event",
+  "name": "Frozen",
+  "inputs": [
+   {
+    "name": "agent",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "frozen",
+    "type": "bool",
+    "indexed": false,
+    "internalType": "bool"
+   }
+  ],
+  "anonymous": false
+ },
+ {
+  "type": "event",
+  "name": "Funded",
+  "inputs": [
+   {
+    "name": "agent",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "from",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "amount",
+    "type": "uint256",
+    "indexed": false,
+    "internalType": "uint256"
+   }
+  ],
+  "anonymous": false
+ },
+ {
+  "type": "event",
+  "name": "GasRefueled",
+  "inputs": [
+   {
+    "name": "agent",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "amount",
+    "type": "uint256",
+    "indexed": false,
+    "internalType": "uint256"
+   }
+  ],
+  "anonymous": false
+ },
+ {
+  "type": "event",
+  "name": "LimitsUpdated",
+  "inputs": [
+   {
+    "name": "agent",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "dailyLimit",
+    "type": "uint256",
+    "indexed": false,
+    "internalType": "uint256"
+   },
+   {
+    "name": "perTxLimit",
+    "type": "uint256",
+    "indexed": false,
+    "internalType": "uint256"
+   },
+   {
+    "name": "allowlistOnly",
+    "type": "bool",
+    "indexed": false,
+    "internalType": "bool"
+   }
+  ],
+  "anonymous": false
+ },
+ {
+  "type": "event",
+  "name": "Paid",
+  "inputs": [
+   {
+    "name": "agent",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "to",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "amount",
+    "type": "uint256",
+    "indexed": false,
+    "internalType": "uint256"
+   },
+   {
+    "name": "memo",
+    "type": "string",
+    "indexed": false,
+    "internalType": "string"
+   },
+   {
+    "name": "viaApproval",
+    "type": "bool",
+    "indexed": false,
+    "internalType": "bool"
+   }
+  ],
+  "anonymous": false
+ },
+ {
+  "type": "event",
+  "name": "RequestQueued",
+  "inputs": [
+   {
+    "name": "id",
+    "type": "uint256",
+    "indexed": true,
+    "internalType": "uint256"
+   },
+   {
+    "name": "agent",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "to",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "amount",
+    "type": "uint256",
+    "indexed": false,
+    "internalType": "uint256"
+   },
+   {
+    "name": "memo",
+    "type": "string",
+    "indexed": false,
+    "internalType": "string"
+   },
+   {
+    "name": "reason",
+    "type": "string",
+    "indexed": false,
+    "internalType": "string"
+   }
+  ],
+  "anonymous": false
+ },
+ {
+  "type": "event",
+  "name": "RequestResolved",
+  "inputs": [
+   {
+    "name": "id",
+    "type": "uint256",
+    "indexed": true,
+    "internalType": "uint256"
+   },
+   {
+    "name": "status",
+    "type": "uint8",
+    "indexed": false,
+    "internalType": "enum Leash.Status"
+   }
+  ],
+  "anonymous": false
+ },
+ {
+  "type": "event",
+  "name": "Withdrawn",
+  "inputs": [
+   {
+    "name": "agent",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "to",
+    "type": "address",
+    "indexed": true,
+    "internalType": "address"
+   },
+   {
+    "name": "amount",
+    "type": "uint256",
+    "indexed": false,
+    "internalType": "uint256"
+   }
+  ],
+  "anonymous": false
+ },
+ {
+  "type": "error",
+  "name": "AgentExists",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "BadAddress",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "BadLimits",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "InsufficientBudget",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "IsFrozen",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "NotAgent",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "NotOwner",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "NotPending",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "OverLimit",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "Reentrancy",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "TransferFailed",
+  "inputs": []
+ }
+]

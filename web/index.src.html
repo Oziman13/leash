@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leash — spending limits for AI agents on Arc</title>
+<meta name="description" content="Give an AI agent a USDC budget on Arc with daily limits, per-payment limits, an allowlist, human approval and a kill switch. Gas comes out of the same dollar budget.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #eef2f7;
+  --panel: #ffffff;
+  --ink: #18212f;
+  --ink-2: #4a5568;
+  --line: #d5dde8;
+  --usdc: #2775ca;
+  --usdc-soft: #dce9f8;
+  --paid: #2f8f5b;
+  --paid-soft: #dcf0e4;
+  --held: #b7791f;
+  --held-soft: #f8ecd4;
+  --stop: #c2412d;
+  --stop-soft: #f8ddd8;
+  --focus: #2775ca;
+  --r-lg: 18px;
+  --r-sm: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1622; --panel: #172131; --ink: #e8eef7; --ink-2: #9fb0c6; --line: #2a3a51;
+    --usdc: #5aa2f0; --usdc-soft: #1c3352; --paid: #57c08a; --paid-soft: #183a2a;
+    --held: #e3a948; --held-soft: #3d2f15; --stop: #ee7563; --stop-soft: #43211c; --focus: #5aa2f0;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1622; --panel: #172131; --ink: #e8eef7; --ink-2: #9fb0c6; --line: #2a3a51;
+  --usdc: #5aa2f0; --usdc-soft: #1c3352; --paid: #57c08a; --paid-soft: #183a2a;
+  --held: #e3a948; --held-soft: #3d2f15; --stop: #ee7563; --stop-soft: #43211c; --focus: #5aa2f0;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 16px/1.55 "Instrument Sans", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+h1, h2, h3 { font-family: "Bricolage Grotesque", "Instrument Sans", sans-serif; line-height: 1.1; margin: 0; }
+a { color: var(--usdc); }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+
+/* top bar */
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 0; }
+.brand { display: flex; align-items: center; gap: 10px; font-family: "Bricolage Grotesque"; font-weight: 800; font-size: 22px; }
+.brand svg { width: 30px; height: 30px; }
+.bar-right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.pill { font-size: 13px; padding: 6px 10px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--ink-2); white-space: nowrap; }
+.pill.ok { color: var(--paid); border-color: var(--paid); }
+.pill.bad { color: var(--stop); border-color: var(--stop); }
+
+/* buttons */
+.btn { border: 1px solid var(--ink); background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: 10px; font-weight: 600; cursor: pointer; }
+.btn:hover { filter: brightness(1.15); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; filter: none; }
+.btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+.btn.small { padding: 6px 10px; font-size: 14px; border-radius: 8px; }
+.btn.ok { background: var(--paid); border-color: var(--paid); color: #fff; }
+.btn.stop { background: var(--stop); border-color: var(--stop); color: #fff; }
+
+/* hero */
+.hero { padding: 28px 0 8px; display: grid; grid-template-columns: 1.1fr .9fr; gap: 36px; align-items: center; }
+.hero h1 { font-size: clamp(36px, 6vw, 64px); font-weight: 800; letter-spacing: -.02em; }
+.hero p { color: var(--ink-2); font-size: 18px; max-width: 34em; margin: 16px 0 0; }
+.hero .why { margin-top: 18px; padding: 14px 16px; border-left: 4px solid var(--usdc); background: var(--panel); border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: 15px; color: var(--ink); }
+
+/* the leash */
+.leash-stage { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 18px 18px 14px; }
+.leash-svg { width: 100%; height: auto; display: block; overflow: visible; }
+.leash-svg .rope { fill: none; stroke: var(--usdc); stroke-width: 7; stroke-linecap: round; transition: d .9s cubic-bezier(.3,1.6,.5,1), stroke .3s; }
+.leash-svg.taut .rope { stroke: var(--held); }
+.leash-svg.frozen .rope { stroke: var(--stop); stroke-dasharray: 2 14; }
+.leash-svg .post { fill: var(--ink); }
+.leash-svg .bot rect { fill: var(--ink); }
+.leash-svg .bot .eye { fill: var(--paper); }
+.leash-svg .collar { fill: var(--usdc); }
+.leash-svg.taut .collar { fill: var(--held); }
+.leash-svg.frozen .collar { fill: var(--stop); }
+.leash-svg .bot { transition: transform .9s cubic-bezier(.3,1.6,.5,1); }
+.leash-svg.tug .bot { animation: tug .45s ease; }
+@keyframes tug { 30% { transform: translateX(14px); } 60% { transform: translateX(-4px); } }
+.leash-read { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-top: 6px; flex-wrap: wrap; }
+.leash-read .big { font-family: "Bricolage Grotesque"; font-size: 30px; font-weight: 700; }
+.leash-read .sub { color: var(--ink-2); font-size: 14px; }
+.meter { height: 10px; background: var(--paper); border-radius: 99px; overflow: hidden; display: flex; margin-top: 10px; border: 1px solid var(--line); }
+.meter span { display: block; height: 100%; transition: width .6s ease; }
+.meter .m-pay { background: var(--paid); }
+.meter .m-gas { background: repeating-linear-gradient(135deg, var(--usdc) 0 4px, var(--usdc-soft) 4px 8px); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); margin-top: 8px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+
+/* panels */
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 28px 0; align-items: start; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 20px; min-width: 0; }
+.panel h2 { font-size: 24px; font-weight: 700; }
+.panel .lede { color: var(--ink-2); margin: 6px 0 16px; font-size: 15px; }
+.panel h3 { font-size: 16px; font-weight: 700; margin: 20px 0 8px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.field { display: grid; gap: 4px; margin-bottom: 12px; }
+.field label { font-size: 14px; font-weight: 600; }
+.field .hint { font-size: 13px; color: var(--ink-2); }
+.field input[type=text], .field input[type=number] { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.money { position: relative; }
+.money::before { content: "$"; position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-2); }
+.money input { padding-left: 24px !important; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; margin: 4px 0 14px; }
+.check input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--usdc); }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.stat { background: var(--paper); border-radius: 12px; padding: 10px 12px; }
+.stat b { display: block; font-size: 20px; font-family: "Bricolage Grotesque"; }
+.stat span { font-size: 13px; color: var(--ink-2); }
+.addr { font-size: 13px; color: var(--ink-2); word-break: break-all; }
+
+/* kill switch */
+.kill { margin-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 2px solid var(--stop); border-radius: 14px; }
+.kill.frozen { background: var(--stop-soft); }
+.kill p { margin: 0; font-size: 14px; }
+
+/* approvals */
+.req { border: 1px solid var(--held); background: var(--held-soft); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
+.req .amt { font-weight: 700; font-size: 18px; }
+.req .why { font-size: 13px; color: var(--ink-2); }
+.empty { color: var(--ink-2); font-size: 14px; padding: 12px; border: 1px dashed var(--line); border-radius: 12px; }
+
+/* agent console */
+.tasks { display: grid; gap: 8px; }
+.task { text-align: left; display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 12px 14px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+.task:hover { border-color: var(--usdc); }
+.task[disabled] { opacity: .5; cursor: not-allowed; }
+.task .t-name { font-weight: 600; }
+.task .t-exp { font-size: 13px; color: var(--ink-2); }
+.task .t-amt { font-family: "Bricolage Grotesque"; font-weight: 700; white-space: nowrap; }
+
+/* feed */
+.feed { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.feed li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; padding: 10px 12px; border-radius: 12px; background: var(--paper); border-left: 4px solid var(--line); animation: in .35s ease; }
+.feed li.paid { border-left-color: var(--paid); }
+.feed li.held { border-left-color: var(--held); }
+.feed li.stop { border-left-color: var(--stop); }
+.feed li.gas { border-left-color: var(--usdc); }
+.feed li.wait { border-left-color: var(--ink-2); }
+@keyframes in { from { opacity: 0; transform: translateY(-4px); } }
+.verdict { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+.paid .verdict { background: var(--paid-soft); color: var(--paid); }
+.held .verdict { background: var(--held-soft); color: var(--held); }
+.stop .verdict { background: var(--stop-soft); color: var(--stop); }
+.gas .verdict { background: var(--usdc-soft); color: var(--usdc); }
+.wait .verdict { background: var(--line); color: var(--ink-2); }
+.feed .f-main { font-size: 14px; min-width: 0; }
+.feed .f-main small { display: block; color: var(--ink-2); font-size: 12px; overflow-wrap: anywhere; }
+.feed .f-amt { font-weight: 700; white-space: nowrap; }
+
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: 12px; max-width: min(560px, calc(100% - 32px)); font-size: 14px; z-index: 9; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+.toast[hidden] { display: none; }
+.notice { background: var(--usdc-soft); border-radius: 12px; padding: 12px 14px; font-size: 14px; margin-bottom: 14px; }
+.notice.warn { background: var(--held-soft); }
+details summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+pre { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 12px; overflow-x: auto; font-size: 12.5px; line-height: 1.5; }
+footer { color: var(--ink-2); font-size: 14px; padding: 8px 0 40px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+@media (max-width: 860px) {
+  .hero, .grid { grid-template-columns: 1fr; }
+  .hero { gap: 20px; }
+}
+@media (max-width: 480px) {
+  .two, .stats { grid-template-columns: 1fr 1fr; }
+  .brand span.full { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="bar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="8" cy="16" r="4" fill="currentColor"/><path d="M12 16 C 18 24, 20 8, 26 16" stroke="#2775ca" stroke-width="3.5" fill="none" stroke-linecap="round"/></svg>
+      Leash <span class="full" style="font-weight:500;font-size:15px;color:var(--ink-2)">for AI agents</span>
+    </div>
+    <div class="bar-right">
+      <span id="netPill" class="pill">Not connected</span>
+      <button id="connectBtn" class="btn">Connect wallet</button>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div>
+      <h1>Give your AI agent money, not your wallet.</h1>
+      <p>Leash holds an agent's USDC budget on Arc. Payments inside your rules settle in under a second. Anything outside them waits for your tap. One switch freezes the agent completely.</p>
+      <div class="why"><strong>Gas included.</strong> On Arc, gas is paid in USDC, so Leash refuels the agent's gas from the same dollar budget. "$1 a day" really means $1 a day, gas and all. On chains where gas is a separate volatile token, that promise is impossible.</div>
+    </div>
+    <div class="leash-stage" aria-live="polite">
+      <svg id="leashSvg" class="leash-svg" viewBox="0 0 400 150" role="img" aria-labelledby="leashTitle">
+        <title id="leashTitle">Leash tension: how much of today's budget the agent has used</title>
+        <rect class="post" x="14" y="46" width="14" height="96" rx="4"/>
+        <circle class="post" cx="21" cy="46" r="11"/>
+        <path id="rope" class="rope" d="M 32 52 Q 170 130 300 70"/>
+        <g id="bot" class="bot">
+          <rect x="300" y="44" width="62" height="56" rx="14"/>
+          <circle class="eye" cx="320" cy="68" r="6"/>
+          <circle class="eye" cx="342" cy="68" r="6"/>
+          <rect class="collar" x="300" y="86" width="62" height="10" rx="4"/>
+          <rect x="315" y="100" width="10" height="34" rx="4"/>
+          <rect x="338" y="100" width="10" height="34" rx="4"/>
+          <rect x="327" y="30" width="6" height="16" rx="3"/>
+          <circle class="collar" cx="330" cy="28" r="6"/>
+        </g>
+      </svg>
+      <div class="leash-read">
+        <div><div class="big" id="leftBig">$—</div><div class="sub" id="leftSub">left today, gas included</div></div>
+        <div class="sub" id="leashState">Connect a wallet to put an agent on a leash.</div>
+      </div>
+      <div class="meter" aria-hidden="true"><span class="m-pay" id="mPay" style="width:0"></span><span class="m-gas" id="mGas" style="width:0"></span></div>
+      <div class="legend"><span><i style="background:var(--paid)"></i>Payments</span><span><i style="background:repeating-linear-gradient(135deg,var(--usdc) 0 3px,var(--usdc-soft) 3px 6px)"></i>Gas</span><span><i style="background:var(--paper);border:1px solid var(--line)"></i>Still allowed today</span></div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <!-- OWNER -->
+    <section class="panel" aria-labelledby="ownerH">
+      <h2 id="ownerH">You, the owner</h2>
+      <p class="lede">Set the rules, approve what goes over them, pull the plug when needed.</p>
+      <div id="ownerBody"><div class="empty">Connect a wallet on Arc to start.</div></div>
+    </section>
+
+    <!-- AGENT -->
+    <section class="panel" aria-labelledby="agentH">
+      <h2 id="agentH">The agent</h2>
+      <p class="lede">A demo agent that lives in this browser tab with its own key. It signs its own transactions. You never sign for it.</p>
+      <div id="agentBody"><div class="empty">The agent appears once you create a leash.</div></div>
+      <h3>What the agent did</h3>
+      <ul class="feed" id="feed" aria-live="polite"></ul>
+      <div class="empty" id="feedEmpty">No activity yet.</div>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="devH" style="margin-bottom:24px">
+    <h2 id="devH">Plug in a real agent</h2>
+    <p class="lede">Any agent that can sign an Ethereum transaction can use Leash: an LLM tool call, a script, a trading bot. Give it the agent key, never your own.</p>
+    <pre id="snippet"></pre>
+    <p class="addr" id="contractLine"></p>
+  </section>
+
+  <footer>Leash is an experiment running on Arc mainnet with real USDC. Keep budgets small. Open source, MIT licensed.</footer>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+"use strict";
+const ARC = { chainId: 5042n, hex: "0x13b2", name: "Arc", rpc: "https://rpc.mainnet.arc.io", explorer: "https://explorer.arc.io" };
+// Filled in after deployment. ?leash=0x...&from=<block> in the URL overrides these.
+const CONFIG = { address: "__LEASH_ADDRESS__", deployBlock: __DEPLOY_BLOCK__ };
+const ABI = __ABI__;
+const BYTECODE = "__BYTECODE__";
+const { ethers } = window;
+const $ = (id) => document.getElementById(id);
+const usd = (wei, d = 2) => { const n = Number(ethers.formatEther(wei ?? 0n)); return "$" + n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: Math.max(d, n < 1 && n > 0 ? 4 : d) }); };
+const toWei = (v) => ethers.parseEther(String(v || "0"));
+const short = (a) => a ? a.slice(0, 6) + "…" + a.slice(-4) : "";
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+
+const qs = new URLSearchParams(location.search);
+let LEASH_ADDR = qs.get("leash") || (CONFIG.address.startsWith("0x") ? CONFIG.address : "") || store.get("leash.address") || "";
+let FROM_BLOCK = Number(qs.get("from") || CONFIG.deployBlock || store.get("leash.from") || 0);
+
+let provider, signer, owner, leash, agentWallet, agentLeash, agentAddr, agentData, remaining = 0n, busy = false;
+const iface = new ethers.Interface(ABI);
+const labels = {}; // address -> friendly name
+
+function toast(msg, ms = 4200) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), ms); }
+function errMsg(e) {
+  const data = e?.data || e?.info?.error?.data || e?.error?.data;
+  try { if (data) { const p = iface.parseError(data); if (p) return friendlyError(p.name); } } catch {}
+  if (e?.revert?.name) return friendlyError(e.revert.name);
+  if (e?.code === "ACTION_REJECTED" || e?.code === 4001) return "You cancelled it in your wallet.";
+  return e?.shortMessage || e?.reason || e?.message || String(e);
+}
+function friendlyError(n) {
+  return ({ IsFrozen: "The agent is frozen.", InsufficientBudget: "Not enough budget left in the leash.", OverLimit: "That would go over today's limit.", NotOwner: "Only the owner can do that.", NotAgent: "That address is not an agent.", BadLimits: "Check the limits: per-payment must be above 0 and not above the daily limit.", AgentExists: "That agent already has a leash.", BadAddress: "That address can't be used here.", TransferFailed: "The recipient refused the USDC (or is blocklisted).", NotPending: "That request was already handled." })[n] || n;
+}
+
+// ------------------------------------------------------------ connection
+async function connect() {
+  if (!window.ethereum) { toast("No wallet found. Install MetaMask or Rabby, then reload."); return; }
+  provider = new ethers.BrowserProvider(window.ethereum, "any");
+  await provider.send("eth_requestAccounts", []);
+  await ensureArc();
+  signer = await provider.getSigner();
+  owner = await signer.getAddress();
+  labels[owner.toLowerCase()] = "you";
+  $("connectBtn").textContent = short(owner);
+  window.ethereum.on?.("accountsChanged", () => location.reload());
+  window.ethereum.on?.("chainChanged", () => location.reload());
+  await boot();
+}
+async function ensureArc() {
+  const net = await provider.getNetwork();
+  if (net.chainId === ARC.chainId) { provider.pollingInterval = 300; return setNet(true); }
+  try {
+    await provider.send("wallet_switchEthereumChain", [{ chainId: ARC.hex }]);
+  } catch (e) {
+    if (e?.error?.code === 4902 || e?.code === 4902 || /Unrecognized|not added|4902/i.test(e?.message || "")) {
+      await provider.send("wallet_addEthereumChain", [{ chainId: ARC.hex, chainName: "Arc", nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 }, rpcUrls: [ARC.rpc], blockExplorerUrls: [ARC.explorer] }]);
+    } else throw e;
+  }
+  provider = new ethers.BrowserProvider(window.ethereum, "any");
+  provider.pollingInterval = 300; // Arc finalizes in under a second; don't wait 4 s to notice
+  setNet(true);
+}
+function setNet(ok) { const p = $("netPill"); p.textContent = ok ? "Arc mainnet" : "Wrong network"; p.className = "pill " + (ok ? "ok" : "bad"); }
+
+async function boot() {
+  if (!LEASH_ADDR || !(await provider.getCode(LEASH_ADDR)).slice(2)) return renderDeploy();
+  leash = new ethers.Contract(LEASH_ADDR, ABI, signer);
+  $("contractLine").innerHTML = `Leash contract: <a href="${ARC.explorer}/address/${LEASH_ADDR}" target="_blank" rel="noopener">${LEASH_ADDR}</a>`;
+  renderSnippet();
+  const agents = await leash.agentsOf(owner);
+  const local = agents.filter((a) => keyFor(a));
+  agentAddr = (local.at(-1) || agents.at(-1)) ?? null;
+  if (!agentAddr) return renderCreate();
+  await loadAgent();
+  await loadHistory();
+}
+
+// ------------------------------------------------------------ deploy (first run only)
+function renderDeploy() {
+  $("ownerBody").innerHTML = `
+    <div class="notice warn">No Leash contract at this address on Arc yet. Deploy one from your wallet. It costs a few cents of USDC.</div>
+    <button class="btn" id="deployBtn">Deploy Leash contract</button>`;
+  $("deployBtn").onclick = async () => {
+    try {
+      $("deployBtn").disabled = true; toast("Confirm the deployment in your wallet…");
+      const f = new ethers.ContractFactory(ABI, BYTECODE, signer);
+      const c = await f.deploy(); const rcpt = await c.deploymentTransaction().wait();
+      LEASH_ADDR = await c.getAddress(); FROM_BLOCK = rcpt.blockNumber;
+      store.set("leash.address", LEASH_ADDR); store.set("leash.from", String(FROM_BLOCK));
+      history.replaceState(null, "", `?leash=${LEASH_ADDR}&from=${FROM_BLOCK}`);
+      toast("Deployed at " + LEASH_ADDR, 8000);
+      await boot();
+    } catch (e) { toast(errMsg(e)); $("deployBtn").disabled = false; }
+  };
+}
+
+// ------------------------------------------------------------ agent keys (demo agent lives in this tab)
+const keyStoreName = () => `leash.keys.${LEASH_ADDR.toLowerCase()}.${owner.toLowerCase()}`;
+function keys() { try { return JSON.parse(store.get(keyStoreName()) || "{}"); } catch { return {}; } }
+function keyFor(a) { return keys()[a.toLowerCase()]; }
+function saveKey(a, pk) { const k = keys(); k[a.toLowerCase()] = pk; store.set(keyStoreName(), JSON.stringify(k)); }
+
+// Agent transactions are signed by the agent key and broadcast through Arc's public RPC,
+// or through the connected wallet's RPC if the public one is not reachable from the browser.
+let agentProvider;
+async function getAgentProvider() {
+  if (agentProvider) return agentProvider;
+  try {
+    const p = new ethers.JsonRpcProvider(ARC.rpc, Number(ARC.chainId), { staticNetwork: true });
+    await Promise.race([p.getBlockNumber(), new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 4000))]);
+    p.pollingInterval = 250;
+    agentProvider = p;
+  } catch { agentProvider = provider; }
+  return agentProvider;
+}
+
+// ------------------------------------------------------------ create a leash
+function renderCreate() {
+  $("ownerBody").innerHTML = `
+    <form id="createForm">
+      <div class="field"><label for="fName">Agent name</label><input type="text" id="fName" value="Shopping agent" maxlength="40" required></div>
+      <div class="two">
+        <div class="field"><label for="fFund">Budget to deposit</label><div class="money"><input type="number" id="fFund" value="2" min="0.1" step="0.01" required></div></div>
+        <div class="field"><label for="fDaily">Daily limit</label><div class="money"><input type="number" id="fDaily" value="1" min="0.01" step="0.01" required></div></div>
+        <div class="field"><label for="fTx">Per-payment limit</label><div class="money"><input type="number" id="fTx" value="0.25" min="0.01" step="0.01" required></div></div>
+        <div class="field"><label for="fGas">Starting gas</label><div class="money"><input type="number" id="fGas" value="0.02" min="0" step="0.005"></div><span class="hint">Comes out of the budget and counts toward today's limit.</span></div>
+      </div>
+      <label class="check"><input type="checkbox" id="fAllow" checked><span>Only pay addresses I trust without asking. Your own address is trusted, so demo payments come back to you.</span></label>
+      <button class="btn" type="submit" id="createBtn">Create leash and deposit</button>
+    </form>`;
+  $("createForm").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const btn = $("createBtn");
+    try {
+      btn.disabled = true;
+      const w = ethers.Wallet.createRandom();
+      saveKey(w.address, w.privateKey); // save first so the key is never lost after a confirmed tx
+      const fund = toWei($("fFund").value), daily = toWei($("fDaily").value), per = toWei($("fTx").value), gas = toWei($("fGas").value || 0);
+      if (per > daily) throw new Error("Per-payment limit can't be above the daily limit.");
+      if (gas > per || gas > fund) throw new Error("Starting gas must fit in the per-payment limit and the deposit.");
+      toast("Confirm in your wallet…");
+      const tx = await leash.registerAgent(w.address, $("fName").value.trim(), daily, per, $("fAllow").checked, gas, [owner], { value: fund });
+      await tx.wait();
+      agentAddr = w.address;
+      toast("Leash created. The agent is ready.");
+      await loadAgent(); await loadHistory();
+    } catch (e) { toast(errMsg(e)); btn.disabled = false; }
+  };
+}
+
+// ------------------------------------------------------------ load + render owner view
+async function loadAgent() {
+  const [a, rem] = await leash.getAgent(agentAddr);
+  agentData = a; remaining = rem;
+  labels[agentAddr.toLowerCase()] = "the agent";
+  const pk = keyFor(agentAddr);
+  if (pk) {
+    const ap = await getAgentProvider();
+    agentWallet = new ethers.Wallet(pk, ap);
+    agentLeash = new ethers.Contract(LEASH_ADDR, ABI, agentWallet);
+  }
+  const pending = await loadPending();
+  renderOwner(pending);
+  renderAgent();
+  drawLeash();
+}
+
+async function loadPending() {
+  const n = Number(await leash.requestCount());
+  const out = [];
+  for (let i = n - 1; i >= Math.max(0, n - 60); i--) {
+    const r = await leash.getRequest(i);
+    if (r.agent.toLowerCase() === agentAddr.toLowerCase() && Number(r.status) === 1) out.push({ id: i, r });
+  }
+  return out;
+}
+
+function renderOwner(pending) {
+  const a = agentData;
+  const frozen = a.frozen;
+  $("ownerBody").innerHTML = `
+    <div class="row" style="justify-content:space-between"><strong>${esc(a.name || "Agent")}</strong><a class="addr" href="${ARC.explorer}/address/${agentAddr}" target="_blank" rel="noopener">${short(agentAddr)}</a></div>
+    <div class="stats" style="margin-top:10px">
+      <div class="stat"><b>${usd(a.balance)}</b><span>in the leash</span></div>
+      <div class="stat"><b>${usd(a.dailyLimit)}</b><span>daily limit</span></div>
+      <div class="stat"><b>${usd(a.perTxLimit)}</b><span>per payment</span></div>
+      <div class="stat"><b>${usd(a.totalSpent)}</b><span>spent all time</span></div>
+      <div class="stat"><b>${usd(a.totalGas, 4)}</b><span>of it on gas</span></div>
+      <div class="stat"><b>${a.allowlistOnly ? "On" : "Off"}</b><span>trusted-only</span></div>
+    </div>
+    <div class="kill ${frozen ? "frozen" : ""}">
+      <p>${frozen ? "<strong>Frozen.</strong> The agent can't pay, refuel or ask for anything." : "Something looks wrong? Freeze stops every payment instantly."}</p>
+      <button class="btn ${frozen ? "ok" : "stop"}" id="freezeBtn">${frozen ? "Unfreeze" : "Freeze agent"}</button>
+    </div>
+    <h3>Waiting for you ${pending.length ? `(${pending.length})` : ""}</h3>
+    <div id="pending">${pending.length ? pending.map(({ id, r }) => `
+      <div class="req">
+        <div class="row" style="justify-content:space-between"><span class="amt">${usd(r.amount)}</span><span class="addr">to ${labelOf(r.to)}</span></div>
+        <div class="why">${esc(r.memo || "no note")}</div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn small ok" data-approve="${id}">Approve</button>
+          ${r.to.toLowerCase() === owner.toLowerCase() ? "" : `<button class="btn small ghost" data-trust="${id}">Approve and trust ${esc(short(r.to))}</button>`}
+          <button class="btn small ghost" data-reject="${id}">Reject</button>
+        </div>
+      </div>`).join("") : `<div class="empty">Nothing waiting. Payments over the rules show up here.</div>`}</div>
+    <details style="margin-top:16px"><summary>Change rules or budget</summary>
+      <div style="margin-top:12px">
+        <div class="two">
+          <div class="field"><label for="eDaily">Daily limit</label><div class="money"><input type="number" id="eDaily" step="0.01" value="${ethers.formatEther(a.dailyLimit)}"></div></div>
+          <div class="field"><label for="eTx">Per-payment limit</label><div class="money"><input type="number" id="eTx" step="0.01" value="${ethers.formatEther(a.perTxLimit)}"></div></div>
+        </div>
+        <label class="check"><input type="checkbox" id="eAllow" ${a.allowlistOnly ? "checked" : ""}><span>Only pay trusted addresses without asking</span></label>
+        <button class="btn small" id="saveRules">Save rules</button>
+        <div class="two" style="margin-top:14px">
+          <div class="field"><label for="eTop">Add to budget</label><div class="money"><input type="number" id="eTop" step="0.01" value="1"></div></div>
+          <div class="field"><label for="eOut">Take back</label><div class="money"><input type="number" id="eOut" step="0.01" value="${ethers.formatEther(a.balance)}"></div></div>
+        </div>
+        <div class="row"><button class="btn small" id="topBtn">Add to budget</button><button class="btn small ghost" id="outBtn">Take back to my wallet</button></div>
+      </div>
+    </details>`;
+  $("freezeBtn").onclick = () => ownerTx(() => leash.setFrozen(agentAddr, !frozen), frozen ? "Agent unfrozen." : "Agent frozen. Nothing moves until you unfreeze.");
+  $("pending").onclick = (ev) => {
+    const b = ev.target.closest("button"); if (!b) return;
+    if (b.dataset.approve) ownerTx(() => leash.approve(BigInt(b.dataset.approve), false), "Approved and paid.");
+    if (b.dataset.trust) ownerTx(() => leash.approve(BigInt(b.dataset.trust), true), "Approved, paid, and the recipient is now trusted.");
+    if (b.dataset.reject) ownerTx(() => leash.reject(BigInt(b.dataset.reject)), "Rejected. No money moved.");
+  };
+  $("saveRules").onclick = () => ownerTx(() => leash.setLimits(agentAddr, toWei($("eDaily").value), toWei($("eTx").value), $("eAllow").checked), "Rules saved.");
+  $("topBtn").onclick = () => ownerTx(() => leash.fund(agentAddr, { value: toWei($("eTop").value) }), "Budget added.");
+  $("outBtn").onclick = () => ownerTx(() => leash.withdraw(agentAddr, toWei($("eOut").value)), "Sent back to your wallet.");
+}
+
+async function ownerTx(fn, done) {
+  if (busy) return; busy = true;
+  try { toast("Confirm in your wallet…"); const tx = await fn(); await tx.wait(); toast(done); await loadAgent(); await loadHistory(); }
+  catch (e) { toast(errMsg(e)); }
+  finally { busy = false; }
+}
+
+// ------------------------------------------------------------ the leash drawing
+function drawLeash() {
+  const a = agentData; if (!a) return;
+  const daily = Number(ethers.formatEther(a.dailyLimit)) || 1;
+  const left = Number(ethers.formatEther(remaining));
+  const used = Math.min(1, Math.max(0, 1 - left / daily));
+  // the agent pulls further away as it spends; the rope goes from slack to taut
+  const x = 220 + used * 100, sag = (1 - used) * 70, midX = (32 + x) / 2;
+  $("rope").setAttribute("d", `M 32 52 Q ${midX} ${70 + sag} ${x} 70`);
+  $("bot").setAttribute("transform", `translate(${x - 300} 0)`);
+  const svg = $("leashSvg");
+  svg.classList.toggle("taut", used > 0.7);
+  svg.classList.toggle("frozen", !!a.frozen);
+  $("leftBig").textContent = usd(remaining);
+  $("leftSub").textContent = `left today of ${usd(a.dailyLimit)}, gas included`;
+  $("leashState").textContent = a.frozen ? "Frozen by you." : used >= 0.99 ? "At the end of the leash. Bigger spends wait for you." : used > 0.7 ? "The leash is getting tight." : "On a loose leash.";
+  // meter: split today's spend into gas vs payments using session/history totals
+  const spentToday = Math.max(0, daily - left);
+  const gasShare = Number(ethers.formatEther(a.totalSpent)) > 0 ? Number(ethers.formatEther(a.totalGas)) / Number(ethers.formatEther(a.totalSpent)) : 0;
+  $("mGas").style.width = (spentToday * gasShare / daily * 100).toFixed(2) + "%";
+  $("mPay").style.width = (spentToday * (1 - gasShare) / daily * 100).toFixed(2) + "%";
+}
+function tug() { const s = $("leashSvg"); s.classList.remove("tug"); void s.getBoundingClientRect(); s.classList.add("tug"); }
+
+// ------------------------------------------------------------ the agent console
+function labelOf(addr) { return labels[addr.toLowerCase()] || short(addr); }
+function tasks() {
+  const per = agentData.perTxLimit;
+  const small = per / 5n > 0n ? per / 5n : per;
+  const stranger = store.get("leash.stranger") || (() => { const s = ethers.Wallet.createRandom().address; store.set("leash.stranger", s); return s; })();
+  labels[stranger.toLowerCase()] = "an unknown address";
+  return [
+    { name: "Buy API credits", exp: "Small, to a trusted address. Should pay instantly.", to: owner, amt: small, memo: "API credits for research task" },
+    { name: "Rent a GPU for an hour", exp: "Over the per-payment limit. Should wait for you.", to: owner, amt: per + per / 2n, memo: "GPU hour for model fine-tune" },
+    { name: "Pay a site it found online", exp: "Unknown recipient. Should wait if trusted-only is on.", to: stranger, amt: small, memo: "Checkout on a site the agent found" },
+    { name: "Spending spree", exp: "Keeps buying until the daily limit stops it.", spree: true, to: owner, amt: per, memo: "Bulk purchase" },
+  ];
+}
+function renderAgent() {
+  if (!agentWallet) {
+    $("agentBody").innerHTML = `<div class="notice">This agent's key is in another browser. Agents from this browser appear here. You can still manage it on the left.</div>`;
+    return;
+  }
+  const ts = tasks();
+  $("agentBody").innerHTML = `
+    <div class="row" style="justify-content:space-between;margin-bottom:10px"><span class="addr">Agent key in this tab · gas balance <strong id="agentGas">…</strong></span><button class="btn small ghost" id="refuelBtn">Refuel gas</button></div>
+    <div class="tasks">${ts.map((t, i) => `
+      <button class="task" data-task="${i}"><span><span class="t-name">${t.name}</span><br><span class="t-exp">${t.exp}</span></span><span class="t-amt">${t.spree ? usd(t.amt) + " ×" : usd(t.amt)}</span></button>`).join("")}
+    </div>
+    <details style="margin-top:12px"><summary>Custom payment</summary>
+      <div style="margin-top:10px">
+        <div class="field"><label for="cTo">To address</label><input type="text" id="cTo" value="${owner}"></div>
+        <div class="two"><div class="field"><label for="cAmt">Amount</label><div class="money"><input type="number" id="cAmt" step="0.01" value="0.05"></div></div>
+        <div class="field"><label for="cMemo">Note</label><input type="text" id="cMemo" value="Custom payment" maxlength="80"></div></div>
+        <button class="btn small" id="cGo">Agent pays</button>
+      </div>
+    </details>`;
+  updateAgentGas();
+  $("agentBody").querySelector(".tasks").onclick = (ev) => { const b = ev.target.closest("[data-task]"); if (b) runTask(ts[+b.dataset.task]); };
+  $("refuelBtn").onclick = () => agentRefuel(true);
+  $("cGo").onclick = () => { const to = $("cTo").value.trim(); if (!ethers.isAddress(to)) return toast("That isn't a valid address."); runTask({ to, amt: toWei($("cAmt").value), memo: $("cMemo").value }); };
+}
+async function updateAgentGas() { try { const b = await agentWallet.provider.getBalance(agentWallet.address); $("agentGas").textContent = usd(b, 4); return b; } catch { return 0n; } }
+
+function setAgentBusy(on) { document.querySelectorAll(".task, #cGo, #refuelBtn").forEach((b) => (b.disabled = on)); }
+
+async function runTask(t) {
+  if (busy) return; busy = true; setAgentBusy(true);
+  try {
+    if (t.spree) { for (let i = 0; i < 12; i++) { const r = await agentPay(t.to, t.amt, `${t.memo} #${i + 1}`); if (r !== "paid") break; } }
+    else await agentPay(t.to, t.amt, t.memo);
+  } finally { busy = false; setAgentBusy(false); await loadAgent(); }
+}
+
+const MIN_GAS = ethers.parseEther("0.005");
+async function agentRefuel(manual) {
+  const bal = await updateAgentGas();
+  if (!manual && bal >= MIN_GAS) return true;
+  const amt = ethers.parseEther("0.02") > agentData.perTxLimit ? agentData.perTxLimit : ethers.parseEther("0.02");
+  const li = feedItem("wait", "Refueling gas", "Moving dollars from the leash to the agent's gas", amt);
+  try {
+    await agentLeash.refuel.staticCall(amt);
+    const t0 = performance.now(); const tx = await agentLeash.refuel(amt); await tx.wait();
+    setFeed(li, "gas", "Gas refueled", `Paid from the same budget · ${ms(t0)} · ${txLink(tx.hash)}`, amt);
+    await updateAgentGas(); return true;
+  } catch (e) { setFeed(li, "stop", "Refuel blocked", errMsg(e), amt); return false; }
+}
+
+async function agentPay(to, amt, memo) {
+  if (!(await agentRefuel(false))) return "stop";
+  const li = feedItem("wait", "Trying to pay " + labelOf(to), esc(memo), amt);
+  try {
+    const [settled] = await agentLeash.pay.staticCall(to, amt, memo); // dry run: costs nothing
+    const t0 = performance.now();
+    const tx = await agentLeash.pay(to, amt, memo);
+    const rcpt = await tx.wait();
+    const took = ms(t0);
+    const queued = rcpt.logs.map((l) => { try { return iface.parseLog(l); } catch { return null; } }).find((p) => p?.name === "RequestQueued");
+    tug();
+    if (queued) { setFeed(li, "held", "Waiting for you", `${esc(memo)} — ${esc(queued.args.reason)} · ${txLink(tx.hash)}`, amt, "Held"); return "held"; }
+    setFeed(li, "paid", "Paid " + labelOf(to), `${esc(memo)} · final in ${took} · ${txLink(tx.hash)}`, amt, "Paid");
+    return settled ? "paid" : "held";
+  } catch (e) {
+    setFeed(li, "stop", "Blocked on-chain", `${esc(memo)} — ${esc(errMsg(e))}`, amt, "Blocked"); tug(); return "stop";
+  }
+}
+const ms = (t0) => { const d = performance.now() - t0; return d < 1000 ? `${Math.round(d)} ms` : `${(d / 1000).toFixed(1)} s`; };
+const txLink = (h) => `<a href="${ARC.explorer}/tx/${h}" target="_blank" rel="noopener">tx</a>`;
+
+function feedItem(kind, title, subHtml, amt, verdict) {
+  $("feedEmpty").hidden = true;
+  const li = document.createElement("li");
+  setFeed(li, kind, title, subHtml || "", amt, verdict || "Working…");
+  $("feed").prepend(li);
+  while ($("feed").children.length > 40) $("feed").lastChild.remove();
+  return li;
+}
+function setFeed(li, kind, title, subHtml, amt, verdict) {
+  li.className = kind;
+  const v = verdict || ({ paid: "Paid", held: "Held", stop: "Blocked", gas: "Gas", wait: "Working…" })[kind];
+  li.innerHTML = `<span class="verdict">${v}</span><span class="f-main">${esc(title)}<small>${subHtml}</small></span><span class="f-amt">${amt != null ? usd(amt, 2) : ""}</span>`;
+}
+
+// ------------------------------------------------------------ on-chain history for this agent
+async function loadHistory() {
+  if (!agentAddr || loadHistory.done === agentAddr) return;
+  loadHistory.done = agentAddr;
+  try {
+    const head = await provider.getBlockNumber();
+    const from = FROM_BLOCK || Math.max(0, head - 50000);
+    const topic = ethers.zeroPadValue(agentAddr, 32);
+    const logs = [];
+    for (let start = from; start <= head; start += 10000) {
+      const range = { address: LEASH_ADDR, fromBlock: start, toBlock: Math.min(head, start + 9999) };
+      logs.push(...(await provider.getLogs({ ...range, topics: [null, topic] })));
+      logs.push(...(await provider.getLogs({ ...range, topics: [iface.getEvent("RequestQueued").topicHash, null, topic] })));
+    }
+    logs.sort((x, y) => x.blockNumber - y.blockNumber || x.index - y.index);
+    const items = logs.map((l) => { try { return { p: iface.parseLog(l), h: l.transactionHash }; } catch { return null; } }).filter(Boolean).slice(-25);
+    for (const { p, h } of items) {
+      const a = p.args;
+      if (p.name === "Paid") feedItem("paid", "Paid " + labelOf(a.to), `${esc(a.memo)}${a.viaApproval ? " · approved by you" : ""} · ${txLink(h)}`, a.amount, "Paid");
+      else if (p.name === "GasRefueled") feedItem("gas", "Gas refueled", `From the budget · ${txLink(h)}`, a.amount, "Gas");
+      else if (p.name === "RequestQueued") feedItem("held", "Asked you to approve", `${esc(a.memo)} — ${esc(a.reason)} · ${txLink(h)}`, a.amount, "Held");
+      else if (p.name === "Frozen") feedItem("stop", a.frozen ? "You froze the agent" : "You unfroze the agent", txLink(h), null, a.frozen ? "Frozen" : "Live");
+    }
+  } catch { /* history is a nicety; the live feed still works */ }
+}
+
+// ------------------------------------------------------------ developer snippet
+function renderSnippet() {
+  $("snippet").textContent = `# pip install web3
+from web3 import Web3
+w3 = Web3(Web3.HTTPProvider("${ARC.rpc}"))
+agent = w3.eth.account.from_key(AGENT_PRIVATE_KEY)   # the agent's key, not yours
+leash = w3.eth.contract(address="${LEASH_ADDR}", abi=LEASH_ABI)
+
+amount = w3.to_wei("0.10", "ether")                  # native USDC on Arc: 18 decimals
+why = leash.functions.check(agent.address, SHOP, amount).call()
+# ""  -> pays instantly    "over per-payment limit" etc. -> queued for the owner
+tx = leash.functions.pay(SHOP, amount, "API credits").build_transaction({
+    "from": agent.address, "nonce": w3.eth.get_transaction_count(agent.address)})
+w3.eth.send_raw_transaction(agent.sign_transaction(tx).raw_transaction)`;
+}
+
+$("connectBtn").onclick = () => connect().catch((e) => toast(errMsg(e)));
+renderSnippet();
+if (LEASH_ADDR) $("contractLine").innerHTML = `Leash contract: <a href="${ARC.explorer}/address/${LEASH_ADDR}" target="_blank" rel="noopener">${LEASH_ADDR}</a>`;
+</script>
+</body>
+</html>

@@ -12,7 +12,9 @@ Leash gives the agent a **budget with rules** instead of a wallet:
 - **Kill switch:** one transaction freezes the agent. It can't pay, refuel gas, or even queue requests.
 - **Audit trail:** every payment, refuel and request is an event with the agent's note attached.
 
-Live demo: `https://<your-github-user>.github.io/leash/` · Contract on Arc mainnet: `<address>`
+**Live demo:** https://oziman13.github.io/leash/ (Arc mainnet; add `?net=testnet` to try it with free test USDC)
+
+**Contract on Arc mainnet:** [`0x455044cfD41D79216eDe111a2eC44c8670d12644`](https://explorer.arc.io/address/0x455044cfD41D79216eDe111a2eC44c8670d12644)
 
 ## Why this only fully works on Arc
 
@@ -20,7 +22,7 @@ An agent needs two kinds of money: the money it spends, and the gas to spend it.
 
 On Arc, **gas is USDC.** Leash refuels the agent's gas (`refuel`) from the **same dollar budget**, counted against the **same daily limit** as its payments. So the cap is total and exact: *$1 a day means $1 a day, gas included.* The owner never has to manage a second asset, and the agent can never cost more than its leash.
 
-Arc also makes the human-in-the-loop part practical: deterministic sub-second finality means a payment within the rules is final before the agent's next thought, and an approval tap settles instantly.
+Arc also makes the human-in-the-loop part practical: finality is deterministic, so a payment within the rules is final as soon as it is included (about two seconds end to end from a browser in our testnet runs, RPC round trips included), and an approval tap settles just as fast.
 
 ## How it works
 
@@ -44,9 +46,15 @@ One contract (`src/Leash.sol`) holds budgets for any number of owners and agents
 
 Amounts are native USDC (`msg.value`, 18 decimals on Arc). No approvals, no token wrapping.
 
-## Plug in a real agent
+## Give a real AI assistant a leash (MCP)
 
-Any agent that can sign a transaction can use Leash: an LLM tool call, a script, a trading bot.
+`mcp/` is an MCP server that turns a leash into four tools for Claude Desktop or any MCP client: `leash_status`, `leash_check`, `leash_pay`, `leash_request`. The assistant holds only the agent key; the contract enforces every rule, so even a prompt-injected assistant can't go past its limits. Payments outside the rules come back as "held for owner approval" with a request id the assistant can follow up on.
+
+The web page exports a ready-to-paste config for the leash you created (**The agent → Hand this leash to a real AI assistant**). Setup in [mcp/README.md](mcp/README.md).
+
+## Plug in any agent
+
+Any agent that can sign a transaction can use Leash directly: an LLM tool call, a script, a trading bot.
 
 ```python
 from web3 import Web3
@@ -91,7 +99,7 @@ Demo payments go back to your own address, so trying it costs only gas (fraction
 
 An early proof of concept on Arc mainnet. Not audited. Keep budgets small.
 
-Next: ERC-4337/EIP-7702 smart-account version (the agent never holds even gas money), EURC budgets, per-recipient limits, spend categories, and an MCP server so any LLM agent gets a leash with one config line.
+Next: ERC-4337/EIP-7702 smart-account version (the agent never holds even gas money), EURC budgets, per-recipient limits, spend categories, and a hosted approval inbox (push notification when an agent asks).
 
 ## License
 

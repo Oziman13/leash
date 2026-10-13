@@ -1,0 +1,15 @@
+{
+  "name": "leash-mcp",
+  "version": "0.1.0",
+  "description": "MCP server that gives any AI assistant a USDC budget on Arc, enforced by the Leash contract",
+  "type": "module",
+  "bin": { "leash-mcp": "index.js" },
+  "main": "index.js",
+  "license": "MIT",
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "ethers": "^6.17.0",
+    "zod": "^3.25.0"
+  }
+}

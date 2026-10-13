@@ -201,7 +201,7 @@ footer { color: var(--ink-2); font-size: 14px; padding: 8px 0 40px; }
   <section class="hero">
     <div>
       <h1>Give your AI agent money, not your wallet.</h1>
-      <p>Leash holds an agent's USDC budget on Arc. Payments inside your rules settle in under a second. Anything outside them waits for your tap. One switch freezes the agent completely.</p>
+      <p>Leash holds an agent's USDC budget on Arc. Payments inside your rules settle in seconds and are final the moment they land. Anything outside them waits for your tap. One switch freezes the agent completely.</p>
       <div class="why"><strong>Gas included.</strong> On Arc, gas is paid in USDC, so Leash refuels the agent's gas from the same dollar budget. "$1 a day" really means $1 a day, gas and all. On chains where gas is a separate volatile token, that promise is impossible.</div>
     </div>
     <div class="leash-stage" aria-live="polite">
@@ -256,14 +256,19 @@ footer { color: var(--ink-2); font-size: 14px; padding: 8px 0 40px; }
     <p class="addr" id="contractLine"></p>
   </section>
 
-  <footer>Leash is an experiment running on Arc mainnet with real USDC. Keep budgets small. Open source, MIT licensed.</footer>
+  <footer id="foot">Leash is an experiment running on Arc mainnet with real USDC. Keep budgets small. Open source, MIT licensed.</footer>
 </div>
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
 <script>
 "use strict";
-const ARC = { chainId: 5042n, hex: "0x13b2", name: "Arc", rpc: "https://rpc.mainnet.arc.io", explorer: "https://explorer.arc.io" };
+const NETS = {
+  mainnet: { chainId: 5042n, hex: "0x13b2", name: "Arc", label: "Arc mainnet", rpc: "https://rpc.mainnet.arc.io", rpcs: ["https://rpc.mainnet.arc.io", "https://rpc.drpc.mainnet.arc.io", "https://rpc.blockdaemon.mainnet.arc.io", "https://rpc.quicknode.mainnet.arc.io"], explorer: "https://explorer.arc.io" },
+  testnet: { chainId: 5042002n, hex: "0x4cef52", name: "Arc Testnet", label: "Arc testnet", rpc: "https://rpc.testnet.arc.io", rpcs: ["https://rpc.testnet.arc.io"], explorer: "https://explorer.testnet.arc.io" },
+};
+const NET_KEY = new URLSearchParams(location.search).get("net") === "testnet" ? "testnet" : "mainnet";
+const ARC = NETS[NET_KEY];
 // Filled in after deployment. ?leash=0x...&from=<block> in the URL overrides these.
 const CONFIG = { address: "__LEASH_ADDRESS__", deployBlock: __DEPLOY_BLOCK__ };
 const ABI = __ABI__;
@@ -277,8 +282,9 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 
 const qs = new URLSearchParams(location.search);
-let LEASH_ADDR = qs.get("leash") || (CONFIG.address.startsWith("0x") ? CONFIG.address : "") || store.get("leash.address") || "";
-let FROM_BLOCK = Number(qs.get("from") || CONFIG.deployBlock || store.get("leash.from") || 0);
+const onMain = NET_KEY === "mainnet";
+let LEASH_ADDR = qs.get("leash") || (onMain && CONFIG.address.startsWith("0x") ? CONFIG.address : "") || store.get(`leash.address.${NET_KEY}`) || "";
+let FROM_BLOCK = Number(qs.get("from") || (onMain && CONFIG.address.startsWith("0x") ? CONFIG.deployBlock : 0) || store.get(`leash.from.${NET_KEY}`) || 0);
 
 let provider, signer, owner, leash, agentWallet, agentLeash, agentAddr, agentData, remaining = 0n, busy = false;
 const iface = new ethers.Interface(ABI);
@@ -317,14 +323,14 @@ async function ensureArc() {
     await provider.send("wallet_switchEthereumChain", [{ chainId: ARC.hex }]);
   } catch (e) {
     if (e?.error?.code === 4902 || e?.code === 4902 || /Unrecognized|not added|4902/i.test(e?.message || "")) {
-      await provider.send("wallet_addEthereumChain", [{ chainId: ARC.hex, chainName: "Arc", nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 }, rpcUrls: [ARC.rpc], blockExplorerUrls: [ARC.explorer] }]);
+      await provider.send("wallet_addEthereumChain", [{ chainId: ARC.hex, chainName: ARC.name, nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 }, rpcUrls: [ARC.rpc], blockExplorerUrls: [ARC.explorer] }]);
     } else throw e;
   }
   provider = new ethers.BrowserProvider(window.ethereum, "any");
   provider.pollingInterval = 300; // Arc finalizes in under a second; don't wait 4 s to notice
   setNet(true);
 }
-function setNet(ok) { const p = $("netPill"); p.textContent = ok ? "Arc mainnet" : "Wrong network"; p.className = "pill " + (ok ? "ok" : "bad"); }
+function setNet(ok) { const p = $("netPill"); p.textContent = ok ? ARC.label : "Wrong network"; p.className = "pill " + (ok ? "ok" : "bad"); }
 
 async function boot() {
   if (!LEASH_ADDR || !(await provider.getCode(LEASH_ADDR)).slice(2)) return renderDeploy();
@@ -342,7 +348,7 @@ async function boot() {
 // ------------------------------------------------------------ deploy (first run only)
 function renderDeploy() {
   $("ownerBody").innerHTML = `
-    <div class="notice warn">No Leash contract at this address on Arc yet. Deploy one from your wallet. It costs a few cents of USDC.</div>
+    <div class="notice warn">No Leash contract on ${ARC.label} yet. Deploy one from your wallet. It costs a few cents of USDC.</div>
     <button class="btn" id="deployBtn">Deploy Leash contract</button>`;
   $("deployBtn").onclick = async () => {
     try {
@@ -350,8 +356,8 @@ function renderDeploy() {
       const f = new ethers.ContractFactory(ABI, BYTECODE, signer);
       const c = await f.deploy(); const rcpt = await c.deploymentTransaction().wait();
       LEASH_ADDR = await c.getAddress(); FROM_BLOCK = rcpt.blockNumber;
-      store.set("leash.address", LEASH_ADDR); store.set("leash.from", String(FROM_BLOCK));
-      history.replaceState(null, "", `?leash=${LEASH_ADDR}&from=${FROM_BLOCK}`);
+      store.set(`leash.address.${NET_KEY}`, LEASH_ADDR); store.set(`leash.from.${NET_KEY}`, String(FROM_BLOCK));
+      history.replaceState(null, "", `?${onMain ? "" : "net=testnet&"}leash=${LEASH_ADDR}&from=${FROM_BLOCK}`);
       toast("Deployed at " + LEASH_ADDR, 8000);
       await boot();
     } catch (e) { toast(errMsg(e)); $("deployBtn").disabled = false; }
@@ -367,14 +373,24 @@ function saveKey(a, pk) { const k = keys(); k[a.toLowerCase()] = pk; store.set(k
 // Agent transactions are signed by the agent key and broadcast through Arc's public RPC,
 // or through the connected wallet's RPC if the public one is not reachable from the browser.
 let agentProvider;
+// Race every public Arc RPC from this browser and keep the fastest one that answers (CORS included).
+// Falls back to the wallet's own RPC, which works everywhere but is slower.
+let agentRpcName = "";
 async function getAgentProvider() {
   if (agentProvider) return agentProvider;
+  const timeout = (ms) => new Promise((_, r) => setTimeout(() => r(new Error("timeout")), ms));
+  const tries = ARC.rpcs.map(async (url) => {
+    const p = new ethers.JsonRpcProvider(url, Number(ARC.chainId), { staticNetwork: true, batchMaxCount: 1 });
+    const t0 = performance.now();
+    await Promise.race([p.send("eth_blockNumber", []), timeout(3000)]);
+    return { p, url, rtt: performance.now() - t0 };
+  });
   try {
-    const p = new ethers.JsonRpcProvider(ARC.rpc, Number(ARC.chainId), { staticNetwork: true });
-    await Promise.race([p.getBlockNumber(), new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 4000))]);
-    p.pollingInterval = 250;
-    agentProvider = p;
-  } catch { agentProvider = provider; }
+    const best = await Promise.any(tries);
+    best.p.pollingInterval = 250;
+    agentProvider = best.p;
+    agentRpcName = new URL(best.url).hostname + ` (${Math.round(best.rtt)} ms)`;
+  } catch { agentProvider = provider; agentRpcName = "your wallet's RPC"; }
   return agentProvider;
 }
 
@@ -384,10 +400,10 @@ function renderCreate() {
     <form id="createForm">
       <div class="field"><label for="fName">Agent name</label><input type="text" id="fName" value="Shopping agent" maxlength="40" required></div>
       <div class="two">
-        <div class="field"><label for="fFund">Budget to deposit</label><div class="money"><input type="number" id="fFund" value="2" min="0.1" step="0.01" required></div></div>
-        <div class="field"><label for="fDaily">Daily limit</label><div class="money"><input type="number" id="fDaily" value="1" min="0.01" step="0.01" required></div></div>
-        <div class="field"><label for="fTx">Per-payment limit</label><div class="money"><input type="number" id="fTx" value="0.25" min="0.01" step="0.01" required></div></div>
-        <div class="field"><label for="fGas">Starting gas</label><div class="money"><input type="number" id="fGas" value="0.02" min="0" step="0.005"></div><span class="hint">Comes out of the budget and counts toward today's limit.</span></div>
+        <div class="field"><label for="fFund">Budget to deposit</label><div class="money"><input type="number" id="fFund" value="2" min="0.001" step="any" required></div></div>
+        <div class="field"><label for="fDaily">Daily limit</label><div class="money"><input type="number" id="fDaily" value="1" min="0.001" step="any" required></div></div>
+        <div class="field"><label for="fTx">Per-payment limit</label><div class="money"><input type="number" id="fTx" value="0.25" min="0.001" step="any" required></div></div>
+        <div class="field"><label for="fGas">Starting gas</label><div class="money"><input type="number" id="fGas" value="0.02" min="0" step="any"></div><span class="hint">Comes out of the budget and counts toward today's limit.</span></div>
       </div>
       <label class="check"><input type="checkbox" id="fAllow" checked><span>Only pay addresses I trust without asking. Your own address is trusted, so demo payments come back to you.</span></label>
       <button class="btn" type="submit" id="createBtn">Create leash and deposit</button>
@@ -546,7 +562,7 @@ function renderAgent() {
   }
   const ts = tasks();
   $("agentBody").innerHTML = `
-    <div class="row" style="justify-content:space-between;margin-bottom:10px"><span class="addr">Agent key in this tab · gas balance <strong id="agentGas">…</strong></span><button class="btn small ghost" id="refuelBtn">Refuel gas</button></div>
+    <div class="row" style="justify-content:space-between;margin-bottom:10px"><span class="addr">Agent key in this tab · gas balance <strong id="agentGas">…</strong> · via ${esc(agentRpcName)}</span><button class="btn small ghost" id="refuelBtn">Refuel gas</button></div>
     <div class="tasks">${ts.map((t, i) => `
       <button class="task" data-task="${i}"><span><span class="t-name">${t.name}</span><br><span class="t-exp">${t.exp}</span></span><span class="t-amt">${t.spree ? usd(t.amt) + " ×" : usd(t.amt)}</span></button>`).join("")}
     </div>
@@ -557,10 +573,22 @@ function renderAgent() {
         <div class="field"><label for="cMemo">Note</label><input type="text" id="cMemo" value="Custom payment" maxlength="80"></div></div>
         <button class="btn small" id="cGo">Agent pays</button>
       </div>
+    </details>
+    <details style="margin-top:8px"><summary>Hand this leash to a real AI assistant</summary>
+      <div style="margin-top:10px">
+        <p class="addr" style="margin:0 0 10px">Claude Desktop, or any assistant that supports MCP, can spend from this leash with the <code>leash-mcp</code> server from the repo. It gets four tools: status, check, pay and request. Every rule above still applies, because the contract enforces them.</p>
+        <div class="notice warn">The config contains the agent's key. Anyone with it can spend this leash's budget within its rules, and you can freeze it at any time. Never paste your own wallet key anywhere.</div>
+        <button class="btn small ghost" id="showCfg">Show assistant config</button>
+        <pre id="cfg" hidden></pre>
+      </div>
     </details>`;
   updateAgentGas();
   $("agentBody").querySelector(".tasks").onclick = (ev) => { const b = ev.target.closest("[data-task]"); if (b) runTask(ts[+b.dataset.task]); };
   $("refuelBtn").onclick = () => agentRefuel(true);
+  $("showCfg").onclick = () => {
+    const cfg = { mcpServers: { leash: { command: "node", args: ["/path/to/leash/mcp/index.js"], env: { LEASH_NETWORK: NET_KEY, LEASH_ADDRESS: LEASH_ADDR, LEASH_AGENT_KEY: keyFor(agentAddr) } } } };
+    $("cfg").textContent = JSON.stringify(cfg, null, 2); $("cfg").hidden = false; $("showCfg").hidden = true;
+  };
   $("cGo").onclick = () => { const to = $("cTo").value.trim(); if (!ethers.isAddress(to)) return toast("That isn't a valid address."); runTask({ to, amt: toWei($("cAmt").value), memo: $("cMemo").value }); };
 }
 async function updateAgentGas() { try { const b = await agentWallet.provider.getBalance(agentWallet.address); $("agentGas").textContent = usd(b, 4); return b; } catch { return 0n; } }
@@ -575,39 +603,94 @@ async function runTask(t) {
   } finally { busy = false; setAgentBusy(false); await loadAgent(); }
 }
 
-const MIN_GAS = ethers.parseEther("0.005");
+const MIN_GAS = ethers.parseEther("0.008");
+// Fast path for agent transactions: nonce and fee cached locally, signed in the tab, broadcast,
+// then the receipt is polled every 150 ms. "Final in" measures broadcast -> receipt only,
+// which on Arc is deterministic finality (no reorgs after inclusion).
+let agentNonce = null, agentFee = null;
+async function agentSend(fn, args) {
+  const p = agentWallet.provider;
+  const data = iface.encodeFunctionData(fn, args);
+  const req = { to: LEASH_ADDR, data, from: agentWallet.address };
+  if (agentNonce === null) agentNonce = await p.getTransactionCount(agentWallet.address, "pending");
+  if (!agentFee || Date.now() - agentFee.t > 20000) {
+    const f = await p.getFeeData();
+    agentFee = { t: Date.now(), max: f.maxFeePerGas, prio: f.maxPriorityFeePerGas, gp: f.gasPrice };
+  }
+  const gas = (await p.estimateGas(req)) * 13n / 10n;
+  const tx = { to: LEASH_ADDR, data, nonce: agentNonce, gasLimit: gas, chainId: ARC.chainId };
+  if (agentFee.max) { tx.type = 2; tx.maxFeePerGas = agentFee.max; tx.maxPriorityFeePerGas = agentFee.prio ?? 0n; }
+  else tx.gasPrice = agentFee.gp;
+  const raw = await agentWallet.signTransaction(tx);
+  const t0 = performance.now();
+  // One round trip if the node supports it (EIP-7966): send and get the receipt back together.
+  if (syncSend !== false) {
+    let r = null;
+    try { r = await p.send("eth_sendRawTransactionSync", [raw]); }
+    catch (e) {
+      const m = `${e?.error?.message || ""} ${e?.message || ""} ${e?.error?.code ?? ""} ${e?.code ?? ""}`;
+      const unsupported = /not (found|supported|available|allowed|implemented)|does not exist|unknown|-32601|-32004|unsupported/i.test(m);
+      if (syncSend === true || !unsupported) { agentNonce = null; agentFee = null; throw e; }
+      syncSend = false; // this node doesn't have it; use send + poll from now on
+    }
+    if (r) {
+      const took = performance.now() - t0;
+      syncSend = true; agentNonce += 1;
+      if (Number(r.status) !== 1) { const e = new Error("The transaction reverted."); e.hash = r.transactionHash; throw e; }
+      const rcpt = { logs: (r.logs || []).map((l) => ({ topics: l.topics, data: l.data })) };
+      return { hash: r.transactionHash, rcpt, took, sent: took, how: "one call" };
+    }
+  }
+  let hash;
+  try { hash = (await p.broadcastTransaction(raw)).hash; }
+  catch (e) { agentNonce = null; agentFee = null; throw e; }
+  const sent = performance.now() - t0;
+  agentNonce += 1;
+  for (;;) {
+    const r = await p.getTransactionReceipt(hash);
+    if (r) {
+      const took = performance.now() - t0;
+      if (r.status !== 1) { const e = new Error("The transaction reverted."); e.hash = hash; throw e; }
+      return { hash, rcpt: r, took, sent, how: "send + poll" };
+    }
+    if (performance.now() - t0 > 60000) throw new Error("No confirmation after 60 s. Check the explorer.");
+    await new Promise((res) => setTimeout(res, 100));
+  }
+}
+let syncSend = null; // null = untested, true/false once known
+const timing = (x) => `<span title="${x.how}: accepted by the node after ${fmtMs(x.sent)}, final on-chain after ${fmtMs(x.took)}">final in ${fmtMs(x.took)}</span>`;
+const fmtMs = (d) => d < 1000 ? `${Math.round(d)} ms` : `${(d / 1000).toFixed(1)} s`;
+
 async function agentRefuel(manual) {
   const bal = await updateAgentGas();
   if (!manual && bal >= MIN_GAS) return true;
-  const amt = ethers.parseEther("0.02") > agentData.perTxLimit ? agentData.perTxLimit : ethers.parseEther("0.02");
+  const want = ethers.parseEther("0.03");
+  const amt = want > agentData.perTxLimit ? agentData.perTxLimit : want;
   const li = feedItem("wait", "Refueling gas", "Moving dollars from the leash to the agent's gas", amt);
   try {
     await agentLeash.refuel.staticCall(amt);
-    const t0 = performance.now(); const tx = await agentLeash.refuel(amt); await tx.wait();
-    setFeed(li, "gas", "Gas refueled", `Paid from the same budget · ${ms(t0)} · ${txLink(tx.hash)}`, amt);
+    const x = await agentSend("refuel", [amt]);
+    setFeed(li, "gas", "Gas refueled", `Paid from the same budget · ${timing(x)} · ${txLink(x.hash)}`, amt);
     await updateAgentGas(); return true;
-  } catch (e) { setFeed(li, "stop", "Refuel blocked", errMsg(e), amt); return false; }
+  } catch (e) { setFeed(li, "stop", "Refuel blocked", esc(errMsg(e)), amt); return false; }
 }
 
 async function agentPay(to, amt, memo) {
   if (!(await agentRefuel(false))) return "stop";
   const li = feedItem("wait", "Trying to pay " + labelOf(to), esc(memo), amt);
   try {
-    const [settled] = await agentLeash.pay.staticCall(to, amt, memo); // dry run: costs nothing
-    const t0 = performance.now();
-    const tx = await agentLeash.pay(to, amt, memo);
-    const rcpt = await tx.wait();
-    const took = ms(t0);
+    await agentLeash.pay.staticCall(to, amt, memo); // dry run: costs nothing, surfaces "frozen" etc.
+    const x = await agentSend("pay", [to, amt, memo]);
+    const { hash, rcpt } = x;
     const queued = rcpt.logs.map((l) => { try { return iface.parseLog(l); } catch { return null; } }).find((p) => p?.name === "RequestQueued");
     tug();
-    if (queued) { setFeed(li, "held", "Waiting for you", `${esc(memo)} — ${esc(queued.args.reason)} · ${txLink(tx.hash)}`, amt, "Held"); return "held"; }
-    setFeed(li, "paid", "Paid " + labelOf(to), `${esc(memo)} · final in ${took} · ${txLink(tx.hash)}`, amt, "Paid");
-    return settled ? "paid" : "held";
+    if (queued) { setFeed(li, "held", "Waiting for you", `${esc(memo)} — ${esc(queued.args.reason)} · ${txLink(hash)}`, amt, "Held"); return "held"; }
+    setFeed(li, "paid", "Paid " + labelOf(to), `${esc(memo)} · ${timing(x)} · ${txLink(hash)}`, amt, "Paid");
+    return "paid";
   } catch (e) {
     setFeed(li, "stop", "Blocked on-chain", `${esc(memo)} — ${esc(errMsg(e))}`, amt, "Blocked"); tug(); return "stop";
   }
 }
-const ms = (t0) => { const d = performance.now() - t0; return d < 1000 ? `${Math.round(d)} ms` : `${(d / 1000).toFixed(1)} s`; };
 const txLink = (h) => `<a href="${ARC.explorer}/tx/${h}" target="_blank" rel="noopener">tx</a>`;
 
 function feedItem(kind, title, subHtml, amt, verdict) {
@@ -633,10 +716,22 @@ async function loadHistory() {
     const from = FROM_BLOCK || Math.max(0, head - 50000);
     const topic = ethers.zeroPadValue(agentAddr, 32);
     const logs = [];
-    for (let start = from; start <= head; start += 10000) {
-      const range = { address: LEASH_ADDR, fromBlock: start, toBlock: Math.min(head, start + 9999) };
-      logs.push(...(await provider.getLogs({ ...range, topics: [null, topic] })));
-      logs.push(...(await provider.getLogs({ ...range, topics: [iface.getEvent("RequestQueued").topicHash, null, topic] })));
+    // Newest first, in chunks that shrink if the RPC limits the block range; stop once we have enough.
+    const rp = agentProvider && agentProvider !== provider ? agentProvider : provider;
+    const qTopic = iface.getEvent("RequestQueued").topicHash;
+    let end = head, size = 5000, calls = 0;
+    while (end >= from && logs.length < 40 && calls < 80) {
+      const start = Math.max(from, end - size + 1);
+      try {
+        const range = { address: LEASH_ADDR, fromBlock: start, toBlock: end };
+        const [a, b] = await Promise.all([rp.getLogs({ ...range, topics: [null, topic] }), rp.getLogs({ ...range, topics: [qTopic, null, topic] })]);
+        logs.push(...a, ...b); calls++;
+        end = start - 1;
+        if (size < 5000) size = Math.min(5000, size * 2);
+      } catch (e) {
+        if (size <= 100) throw e;
+        size = Math.floor(size / 4); // range too large for this RPC: retry smaller
+      }
     }
     logs.sort((x, y) => x.blockNumber - y.blockNumber || x.index - y.index);
     const items = logs.map((l) => { try { return { p: iface.parseLog(l), h: l.transactionHash }; } catch { return null; } }).filter(Boolean).slice(-25);
@@ -666,6 +761,7 @@ tx = leash.functions.pay(SHOP, amount, "API credits").build_transaction({
 w3.eth.send_raw_transaction(agent.sign_transaction(tx).raw_transaction)`;
 }
 
+if (!onMain) $("foot").textContent = "You are on Arc testnet: test USDC only. Open the page without ?net=testnet for mainnet. Open source, MIT licensed.";
 $("connectBtn").onclick = () => connect().catch((e) => toast(errMsg(e)));
 renderSnippet();
 if (LEASH_ADDR) $("contractLine").innerHTML = `Leash contract: <a href="${ARC.explorer}/address/${LEASH_ADDR}" target="_blank" rel="noopener">${LEASH_ADDR}</a>`;

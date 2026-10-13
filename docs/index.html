@@ -256,7 +256,7 @@ footer { color: var(--ink-2); font-size: 14px; padding: 8px 0 40px; }
     <p class="addr" id="contractLine"></p>
   </section>
 
-  <footer>Leash is an experiment running on Arc mainnet with real USDC. Keep budgets small. Open source, MIT licensed.</footer>
+  <footer id="foot">Leash is an experiment running on Arc mainnet with real USDC. Keep budgets small. Open source, MIT licensed.</footer>
 </div>
 <div class="toast" id="toast" role="status" hidden></div>
 
@@ -581,39 +581,72 @@ async function runTask(t) {
   } finally { busy = false; setAgentBusy(false); await loadAgent(); }
 }
 
-const MIN_GAS = ethers.parseEther("0.005");
+const MIN_GAS = ethers.parseEther("0.008");
+// Fast path for agent transactions: nonce and fee cached locally, signed in the tab, broadcast,
+// then the receipt is polled every 150 ms. "Final in" measures broadcast -> receipt only,
+// which on Arc is deterministic finality (no reorgs after inclusion).
+let agentNonce = null, agentFee = null;
+async function agentSend(fn, args) {
+  const p = agentWallet.provider;
+  const data = iface.encodeFunctionData(fn, args);
+  const req = { to: LEASH_ADDR, data, from: agentWallet.address };
+  if (agentNonce === null) agentNonce = await p.getTransactionCount(agentWallet.address, "pending");
+  if (!agentFee || Date.now() - agentFee.t > 20000) {
+    const f = await p.getFeeData();
+    agentFee = { t: Date.now(), max: f.maxFeePerGas, prio: f.maxPriorityFeePerGas, gp: f.gasPrice };
+  }
+  const gas = (await p.estimateGas(req)) * 13n / 10n;
+  const tx = { to: LEASH_ADDR, data, nonce: agentNonce, gasLimit: gas, chainId: ARC.chainId };
+  if (agentFee.max) { tx.type = 2; tx.maxFeePerGas = agentFee.max; tx.maxPriorityFeePerGas = agentFee.prio ?? 0n; }
+  else tx.gasPrice = agentFee.gp;
+  const raw = await agentWallet.signTransaction(tx);
+  let hash;
+  const t0 = performance.now();
+  try { hash = (await p.broadcastTransaction(raw)).hash; }
+  catch (e) { agentNonce = null; agentFee = null; throw e; }
+  agentNonce += 1;
+  for (;;) {
+    const r = await p.getTransactionReceipt(hash);
+    if (r) {
+      const took = performance.now() - t0;
+      if (r.status !== 1) { const e = new Error("The transaction reverted."); e.hash = hash; throw e; }
+      return { hash, rcpt: r, took };
+    }
+    if (performance.now() - t0 > 60000) throw new Error("No confirmation after 60 s. Check the explorer.");
+    await new Promise((res) => setTimeout(res, 150));
+  }
+}
+const fmtMs = (d) => d < 1000 ? `${Math.round(d)} ms` : `${(d / 1000).toFixed(1)} s`;
+
 async function agentRefuel(manual) {
   const bal = await updateAgentGas();
   if (!manual && bal >= MIN_GAS) return true;
-  const amt = ethers.parseEther("0.02") > agentData.perTxLimit ? agentData.perTxLimit : ethers.parseEther("0.02");
+  const want = ethers.parseEther("0.03");
+  const amt = want > agentData.perTxLimit ? agentData.perTxLimit : want;
   const li = feedItem("wait", "Refueling gas", "Moving dollars from the leash to the agent's gas", amt);
   try {
     await agentLeash.refuel.staticCall(amt);
-    const t0 = performance.now(); const tx = await agentLeash.refuel(amt); await tx.wait();
-    setFeed(li, "gas", "Gas refueled", `Paid from the same budget · ${ms(t0)} · ${txLink(tx.hash)}`, amt);
+    const { hash, took } = await agentSend("refuel", [amt]);
+    setFeed(li, "gas", "Gas refueled", `Paid from the same budget · final in ${fmtMs(took)} · ${txLink(hash)}`, amt);
     await updateAgentGas(); return true;
-  } catch (e) { setFeed(li, "stop", "Refuel blocked", errMsg(e), amt); return false; }
+  } catch (e) { setFeed(li, "stop", "Refuel blocked", esc(errMsg(e)), amt); return false; }
 }
 
 async function agentPay(to, amt, memo) {
   if (!(await agentRefuel(false))) return "stop";
   const li = feedItem("wait", "Trying to pay " + labelOf(to), esc(memo), amt);
   try {
-    const [settled] = await agentLeash.pay.staticCall(to, amt, memo); // dry run: costs nothing
-    const t0 = performance.now();
-    const tx = await agentLeash.pay(to, amt, memo);
-    const rcpt = await tx.wait();
-    const took = ms(t0);
+    await agentLeash.pay.staticCall(to, amt, memo); // dry run: costs nothing, surfaces "frozen" etc.
+    const { hash, rcpt, took } = await agentSend("pay", [to, amt, memo]);
     const queued = rcpt.logs.map((l) => { try { return iface.parseLog(l); } catch { return null; } }).find((p) => p?.name === "RequestQueued");
     tug();
-    if (queued) { setFeed(li, "held", "Waiting for you", `${esc(memo)} — ${esc(queued.args.reason)} · ${txLink(tx.hash)}`, amt, "Held"); return "held"; }
-    setFeed(li, "paid", "Paid " + labelOf(to), `${esc(memo)} · final in ${took} · ${txLink(tx.hash)}`, amt, "Paid");
-    return settled ? "paid" : "held";
+    if (queued) { setFeed(li, "held", "Waiting for you", `${esc(memo)} — ${esc(queued.args.reason)} · ${txLink(hash)}`, amt, "Held"); return "held"; }
+    setFeed(li, "paid", "Paid " + labelOf(to), `${esc(memo)} · final in ${fmtMs(took)} · ${txLink(hash)}`, amt, "Paid");
+    return "paid";
   } catch (e) {
     setFeed(li, "stop", "Blocked on-chain", `${esc(memo)} — ${esc(errMsg(e))}`, amt, "Blocked"); tug(); return "stop";
   }
 }
-const ms = (t0) => { const d = performance.now() - t0; return d < 1000 ? `${Math.round(d)} ms` : `${(d / 1000).toFixed(1)} s`; };
 const txLink = (h) => `<a href="${ARC.explorer}/tx/${h}" target="_blank" rel="noopener">tx</a>`;
 
 function feedItem(kind, title, subHtml, amt, verdict) {
@@ -672,6 +705,7 @@ tx = leash.functions.pay(SHOP, amount, "API credits").build_transaction({
 w3.eth.send_raw_transaction(agent.sign_transaction(tx).raw_transaction)`;
 }
 
+if (!onMain) $("foot").textContent = "You are on Arc testnet: test USDC only. Open the page without ?net=testnet for mainnet. Open source, MIT licensed.";
 $("connectBtn").onclick = () => connect().catch((e) => toast(errMsg(e)));
 renderSnippet();
 if (LEASH_ADDR) $("contractLine").innerHTML = `Leash contract: <a href="${ARC.explorer}/address/${LEASH_ADDR}" target="_blank" rel="noopener">${LEASH_ADDR}</a>`;

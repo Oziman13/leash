@@ -201,7 +201,7 @@ footer { color: var(--ink-2); font-size: 14px; padding: 8px 0 40px; }
   <section class="hero">
     <div>
       <h1>Give your AI agent money, not your wallet.</h1>
-      <p>Leash holds an agent's USDC budget on Arc. Payments inside your rules settle in under a second. Anything outside them waits for your tap. One switch freezes the agent completely.</p>
+      <p>Leash holds an agent's USDC budget on Arc. Payments inside your rules settle in seconds and are final the moment they land. Anything outside them waits for your tap. One switch freezes the agent completely.</p>
       <div class="why"><strong>Gas included.</strong> On Arc, gas is paid in USDC, so Leash refuels the agent's gas from the same dollar budget. "$1 a day" really means $1 a day, gas and all. On chains where gas is a separate volatile token, that promise is impossible.</div>
     </div>
     <div class="leash-stage" aria-live="polite">
@@ -264,8 +264,8 @@ footer { color: var(--ink-2); font-size: 14px; padding: 8px 0 40px; }
 <script>
 "use strict";
 const NETS = {
-  mainnet: { chainId: 5042n, hex: "0x13b2", name: "Arc", label: "Arc mainnet", rpc: "https://rpc.mainnet.arc.io", explorer: "https://explorer.arc.io" },
-  testnet: { chainId: 5042002n, hex: "0x4cef52", name: "Arc Testnet", label: "Arc testnet", rpc: "https://rpc.testnet.arc.io", explorer: "https://explorer.testnet.arc.io" },
+  mainnet: { chainId: 5042n, hex: "0x13b2", name: "Arc", label: "Arc mainnet", rpc: "https://rpc.mainnet.arc.io", rpcs: ["https://rpc.mainnet.arc.io", "https://rpc.drpc.mainnet.arc.io", "https://rpc.blockdaemon.mainnet.arc.io", "https://rpc.quicknode.mainnet.arc.io"], explorer: "https://explorer.arc.io" },
+  testnet: { chainId: 5042002n, hex: "0x4cef52", name: "Arc Testnet", label: "Arc testnet", rpc: "https://rpc.testnet.arc.io", rpcs: ["https://rpc.testnet.arc.io"], explorer: "https://explorer.testnet.arc.io" },
 };
 const NET_KEY = new URLSearchParams(location.search).get("net") === "testnet" ? "testnet" : "mainnet";
 const ARC = NETS[NET_KEY];
@@ -373,14 +373,24 @@ function saveKey(a, pk) { const k = keys(); k[a.toLowerCase()] = pk; store.set(k
 // Agent transactions are signed by the agent key and broadcast through Arc's public RPC,
 // or through the connected wallet's RPC if the public one is not reachable from the browser.
 let agentProvider;
+// Race every public Arc RPC from this browser and keep the fastest one that answers (CORS included).
+// Falls back to the wallet's own RPC, which works everywhere but is slower.
+let agentRpcName = "";
 async function getAgentProvider() {
   if (agentProvider) return agentProvider;
+  const timeout = (ms) => new Promise((_, r) => setTimeout(() => r(new Error("timeout")), ms));
+  const tries = ARC.rpcs.map(async (url) => {
+    const p = new ethers.JsonRpcProvider(url, Number(ARC.chainId), { staticNetwork: true, batchMaxCount: 1 });
+    const t0 = performance.now();
+    await Promise.race([p.send("eth_blockNumber", []), timeout(3000)]);
+    return { p, url, rtt: performance.now() - t0 };
+  });
   try {
-    const p = new ethers.JsonRpcProvider(ARC.rpc, Number(ARC.chainId), { staticNetwork: true });
-    await Promise.race([p.getBlockNumber(), new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 4000))]);
-    p.pollingInterval = 250;
-    agentProvider = p;
-  } catch { agentProvider = provider; }
+    const best = await Promise.any(tries);
+    best.p.pollingInterval = 250;
+    agentProvider = best.p;
+    agentRpcName = new URL(best.url).hostname + ` (${Math.round(best.rtt)} ms)`;
+  } catch { agentProvider = provider; agentRpcName = "your wallet's RPC"; }
   return agentProvider;
 }
 
@@ -552,7 +562,7 @@ function renderAgent() {
   }
   const ts = tasks();
   $("agentBody").innerHTML = `
-    <div class="row" style="justify-content:space-between;margin-bottom:10px"><span class="addr">Agent key in this tab · gas balance <strong id="agentGas">…</strong></span><button class="btn small ghost" id="refuelBtn">Refuel gas</button></div>
+    <div class="row" style="justify-content:space-between;margin-bottom:10px"><span class="addr">Agent key in this tab · gas balance <strong id="agentGas">…</strong> · via ${esc(agentRpcName)}</span><button class="btn small ghost" id="refuelBtn">Refuel gas</button></div>
     <div class="tasks">${ts.map((t, i) => `
       <button class="task" data-task="${i}"><span><span class="t-name">${t.name}</span><br><span class="t-exp">${t.exp}</span></span><span class="t-amt">${t.spree ? usd(t.amt) + " ×" : usd(t.amt)}</span></button>`).join("")}
     </div>
@@ -600,22 +610,43 @@ async function agentSend(fn, args) {
   if (agentFee.max) { tx.type = 2; tx.maxFeePerGas = agentFee.max; tx.maxPriorityFeePerGas = agentFee.prio ?? 0n; }
   else tx.gasPrice = agentFee.gp;
   const raw = await agentWallet.signTransaction(tx);
-  let hash;
   const t0 = performance.now();
+  // One round trip if the node supports it (EIP-7966): send and get the receipt back together.
+  if (syncSend !== false) {
+    let r = null;
+    try { r = await p.send("eth_sendRawTransactionSync", [raw]); }
+    catch (e) {
+      const m = `${e?.error?.message || ""} ${e?.message || ""} ${e?.error?.code ?? ""} ${e?.code ?? ""}`;
+      const unsupported = /not (found|supported|available|allowed|implemented)|does not exist|unknown|-32601|-32004|unsupported/i.test(m);
+      if (syncSend === true || !unsupported) { agentNonce = null; agentFee = null; throw e; }
+      syncSend = false; // this node doesn't have it; use send + poll from now on
+    }
+    if (r) {
+      const took = performance.now() - t0;
+      syncSend = true; agentNonce += 1;
+      if (Number(r.status) !== 1) { const e = new Error("The transaction reverted."); e.hash = r.transactionHash; throw e; }
+      const rcpt = { logs: (r.logs || []).map((l) => ({ topics: l.topics, data: l.data })) };
+      return { hash: r.transactionHash, rcpt, took, sent: took, how: "one call" };
+    }
+  }
+  let hash;
   try { hash = (await p.broadcastTransaction(raw)).hash; }
   catch (e) { agentNonce = null; agentFee = null; throw e; }
+  const sent = performance.now() - t0;
   agentNonce += 1;
   for (;;) {
     const r = await p.getTransactionReceipt(hash);
     if (r) {
       const took = performance.now() - t0;
       if (r.status !== 1) { const e = new Error("The transaction reverted."); e.hash = hash; throw e; }
-      return { hash, rcpt: r, took };
+      return { hash, rcpt: r, took, sent, how: "send + poll" };
     }
     if (performance.now() - t0 > 60000) throw new Error("No confirmation after 60 s. Check the explorer.");
-    await new Promise((res) => setTimeout(res, 150));
+    await new Promise((res) => setTimeout(res, 100));
   }
 }
+let syncSend = null; // null = untested, true/false once known
+const timing = (x) => `<span title="${x.how}: accepted by the node after ${fmtMs(x.sent)}, final on-chain after ${fmtMs(x.took)}">final in ${fmtMs(x.took)}</span>`;
 const fmtMs = (d) => d < 1000 ? `${Math.round(d)} ms` : `${(d / 1000).toFixed(1)} s`;
 
 async function agentRefuel(manual) {
@@ -626,8 +657,8 @@ async function agentRefuel(manual) {
   const li = feedItem("wait", "Refueling gas", "Moving dollars from the leash to the agent's gas", amt);
   try {
     await agentLeash.refuel.staticCall(amt);
-    const { hash, took } = await agentSend("refuel", [amt]);
-    setFeed(li, "gas", "Gas refueled", `Paid from the same budget · final in ${fmtMs(took)} · ${txLink(hash)}`, amt);
+    const x = await agentSend("refuel", [amt]);
+    setFeed(li, "gas", "Gas refueled", `Paid from the same budget · ${timing(x)} · ${txLink(x.hash)}`, amt);
     await updateAgentGas(); return true;
   } catch (e) { setFeed(li, "stop", "Refuel blocked", esc(errMsg(e)), amt); return false; }
 }
@@ -637,11 +668,12 @@ async function agentPay(to, amt, memo) {
   const li = feedItem("wait", "Trying to pay " + labelOf(to), esc(memo), amt);
   try {
     await agentLeash.pay.staticCall(to, amt, memo); // dry run: costs nothing, surfaces "frozen" etc.
-    const { hash, rcpt, took } = await agentSend("pay", [to, amt, memo]);
+    const x = await agentSend("pay", [to, amt, memo]);
+    const { hash, rcpt } = x;
     const queued = rcpt.logs.map((l) => { try { return iface.parseLog(l); } catch { return null; } }).find((p) => p?.name === "RequestQueued");
     tug();
     if (queued) { setFeed(li, "held", "Waiting for you", `${esc(memo)} — ${esc(queued.args.reason)} · ${txLink(hash)}`, amt, "Held"); return "held"; }
-    setFeed(li, "paid", "Paid " + labelOf(to), `${esc(memo)} · final in ${fmtMs(took)} · ${txLink(hash)}`, amt, "Paid");
+    setFeed(li, "paid", "Paid " + labelOf(to), `${esc(memo)} · ${timing(x)} · ${txLink(hash)}`, amt, "Paid");
     return "paid";
   } catch (e) {
     setFeed(li, "stop", "Blocked on-chain", `${esc(memo)} — ${esc(errMsg(e))}`, amt, "Blocked"); tug(); return "stop";
